@@ -214,12 +214,6 @@ def evaluate_models(cnn_model, multi_model, X_test_img, test_meta, y_test_enc, y
         'F1-score (Weighted)': [f1_cnn, f1_multi]
     })
 
-    print("\n-----------------------------------------------")
-    print("               ANALIZA REZULTATA                 ")
-    print("-------------------------------------------------")
-    print(results.to_markdown(index=False))
-    print("-------------------------------------------------")
-
     # Confusion Matrix za bolji model
     final_preds = y_pred_multi if acc_multi > acc_cnn else y_pred_cnn
     model_name = "CNN + Metapodaci" if acc_multi > acc_cnn else "Samo CNN"
