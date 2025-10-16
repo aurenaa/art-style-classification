@@ -19,10 +19,10 @@ MAX_SAMPLES = 20000
 TOP_N_STYLES = 50 
 TOP_N_ARTISTS = 40
 TOP_N_GENRES = 40 
-IMG_SIZE = 128
+IMG_SIZE = 160
 BATCH_SIZE = 32
-NUM_EPOCHS = 40 
-early_stop = EarlyStopping(monitor='val_loss', patience=8, restore_best_weights=True)
+NUM_EPOCHS = 30 
+early_stop = EarlyStopping(monitor='val_loss', patience=7, restore_best_weights=True)
 
 def load_data():
     dataset = load_dataset("Artificio/WikiArt")
@@ -122,6 +122,22 @@ def train_models(X_train_img, y_train_cat, X_val_img, y_val_cat, train_meta, val
         fill_mode='nearest'
     )
 
+    # Generator za augmentaciju slika sa metapodacima
+    def multimodal_generator(image_generator, X_img, X_meta, y_cat, batch_size):
+        gen_images = image_generator.flow(X_img, y_cat, batch_size=batch_size, shuffle=True, seed=42)
+        index = 0
+        while True:
+            X_batch_img, y_batch_cat = next(gen_images)
+            batch_len = len(X_batch_img)
+            current_indices = gen_images.index_array[index : index + batch_len]
+            index += batch_len
+
+            if index >= len(gen_images.index_array):
+                        index = 0
+
+            X_batch_meta = X_meta[current_indices]
+            yield (X_batch_img, X_batch_meta), y_batch_cat
+
     # Samo CNN model
     def build_cnn_model(input_shape, num_classes):
         input_img = Input(shape=input_shape)
@@ -138,7 +154,6 @@ def train_models(X_train_img, y_train_cat, X_val_img, y_val_cat, train_meta, val
         x = Dense(256, activation='relu')(x)
         x = Dropout(0.6)(x)
         output = Dense(num_classes, activation='softmax')(x)
-
         cnn_model = Model(inputs=input_img, outputs=output)
         cnn_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
         return cnn_model
@@ -147,14 +162,12 @@ def train_models(X_train_img, y_train_cat, X_val_img, y_val_cat, train_meta, val
 
     history_cnn = cnn_model.fit(
         datagen.flow(X_train_img, y_train_cat, batch_size=BATCH_SIZE),
-        steps_per_epoch=len(X_train_img)//BATCH_SIZE,
         validation_data=(X_val_img, y_val_cat), 
         epochs=NUM_EPOCHS,
         callbacks=[early_stop]
     )
 
     # Slike + metapodaci
-
     input_img = Input(shape=(IMG_SIZE, IMG_SIZE, 3))
     input_meta = Input(shape=(train_meta.shape[1],)) 
 
@@ -172,7 +185,6 @@ def train_models(X_train_img, y_train_cat, X_val_img, y_val_cat, train_meta, val
 
     # Metapodaci Grana
     x_meta = Dense(64, activation='relu')(input_meta)
-
     x = Concatenate()([x_img, x_meta])
     x = Dense(128, activation='relu')(x)
     x = Dropout(0.5)(x) 
@@ -181,10 +193,11 @@ def train_models(X_train_img, y_train_cat, X_val_img, y_val_cat, train_meta, val
     multi_model = Model(inputs=[input_img, input_meta], outputs=output)
     multi_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
+    train_gen_multi = multimodal_generator(datagen, X_train_img, train_meta, y_train_cat, BATCH_SIZE)   
     history_multi = multi_model.fit(
-        [X_train_img, train_meta], y_train_cat, 
+        train_gen_multi,
+        steps_per_epoch=len(X_train_img) // BATCH_SIZE,
         validation_data=([X_val_img, val_meta], y_val_cat),
-        batch_size=BATCH_SIZE,
         epochs=NUM_EPOCHS,
         callbacks=[early_stop]
     )
